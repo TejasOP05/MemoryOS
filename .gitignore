@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+
+data/
+
+venv/
+.venv/
+
+*.faiss
+*.pkl
+
+test_docs/

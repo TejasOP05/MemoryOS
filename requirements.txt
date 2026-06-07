@@ -1,0 +1,9 @@
+# MemoryOS requirements
+# Built using Python 3.12. Core scanner, database, search, and utils leverage Python's standard library.
+
+PyQt6>=6.6.0
+sentence-transformers>=2.3.0
+faiss-cpu>=1.8.0
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+python-pptx>=0.6.21
