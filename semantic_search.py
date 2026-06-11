@@ -15,15 +15,9 @@ class SemanticSearch:
         self.store.load_index("data/index.faiss")
         with open("data/chunk_map.pkl", "rb") as f:
             self.chunk_map = pickle.load(f)
-        # print(
-    "Chunk Map Size:",
-    len(self.chunk_map)
-)
-        # print(
-    "Total Vectors:",
-    self.store.index.ntotal
-)
-        
+        # print("Chunk Map Size:",len(self.chunk_map))
+        # print("Total Vectors:",self.store.index.ntotal)
+
     def build_index(self):
         chunks = self.db.get_all_chunks()
         embeddings = []

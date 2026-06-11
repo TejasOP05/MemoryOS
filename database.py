@@ -203,6 +203,10 @@ class DatabaseManager:
                             ''', (f"%{query}%",))
         return self.cursor.fetchall()
     
-    
-    
+    def count_files(self):
+        self.cursor.execute('''
+                            SELECT COUNT(*)
+                            FROM files
+                            ''')
+        return self.cursor.fetchone()[0]
     
