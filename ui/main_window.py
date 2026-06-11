@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QApplication,
     QTextEdit
-)
+    )
 from PyQt6.QtCore import Qt, QSize
 from ui.reindex_worker import ReindexWorker
 from ui.styles import MAIN_STYLE
@@ -173,8 +173,10 @@ class MemoryOSWindow(QWidget):
         self.preview_panel.setPlainText(
             "Select a file for preview"
         )
+
+        # self.preview_panel.QTextEdit()
+        self.preview_panel.setReadOnly(True)
         
-        # self.preview_panel.setWordWrap(True)
         self.preview_panel.setAlignment(
             Qt.AlignmentFlag.AlignTop
         )
@@ -305,8 +307,9 @@ class MemoryOSWindow(QWidget):
         for filename, path, text, score in results:
             preview = text[:100]
             preview = preview.replace("\n", " ")
-            item = QListWidgetItem(f"📄 {filename}\nPreview: {preview}...")
-            item.setSizeHint(QSize(100,100))
+            folder = os.path.basename(os.path.dirname(path))
+            item = QListWidgetItem(f"📄 {filename}\n📁 {folder}...")
+            item.setSizeHint(QSize(100,70))
             item.setData(Qt.ItemDataRole.UserRole, path)  # Store the file path for later use
             item.setData(Qt.ItemDataRole.UserRole + 1, {"filename": filename, "text": text})  # Store the file path for later use
             self.results_list.addItem(item)
@@ -376,6 +379,7 @@ class MemoryOSWindow(QWidget):
                 
     def show_folders(self):
         self.results_list.hide()
+        self.preview_panel.hide()
         self.folder_list.show()
         self.folder_list.clear()
         folders = self.config.load_folders()
@@ -385,6 +389,7 @@ class MemoryOSWindow(QWidget):
     def show_search(self):
         self.folder_list.hide()
         self.results_list.show()
+        self.preview_panel.show()
         
     def remove_folder(self):
         item = self.folder_list.currentItem()
