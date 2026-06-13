@@ -35,3 +35,28 @@ QLabel {
     color: white;
 }
 """
+
+LIGHT_STYLE = """
+QWidget {
+    background-color: white;
+    color: black;
+}
+
+QPushButton {
+    background-color: #e0e0e0;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+QLineEdit {
+    padding: 6px;
+}
+
+QListWidget {
+    background-color: white;
+}
+
+QTextEdit {
+    background-color: white;
+}
+"""

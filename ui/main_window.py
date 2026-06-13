@@ -8,18 +8,21 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListWidgetItem,
     QFileDialog,
-    QApplication,
-    QTextEdit
-    )
+    QTextEdit,
+    QComboBox,
+    QStackedWidget,
+    QMessageBox,
+    QProgressBar
+)
 from PyQt6.QtCore import Qt, QSize
 from ui.reindex_worker import ReindexWorker
 from ui.styles import MAIN_STYLE
 from semantic_search import SemanticSearch
-import os
 from config_manager import ConfigManager
 from pipeline import Pipeline
-import time
 from database import DatabaseManager
+import os
+import time
 
 
 class MemoryOSWindow(QWidget):
@@ -30,404 +33,354 @@ class MemoryOSWindow(QWidget):
         self.search_engine = SemanticSearch()
         self.config = ConfigManager()
         self.pipeline = Pipeline()
-        
+
         self.setWindowTitle("🧠 MemoryOS")
         self.resize(1200, 700)
-
         self.setStyleSheet(MAIN_STYLE)
 
         self.setup_ui()
 
+    # ------------------------------------------------------------------ #
+    #  UI Setup                                                            #
+    # ------------------------------------------------------------------ #
+
     def setup_ui(self):
+        root = QHBoxLayout(self)
+        root.addLayout(self._build_sidebar(), 1)
+        root.addLayout(self._build_content(), 4)
 
-        main_layout = QHBoxLayout()
+    # -- Sidebar -------------------------------------------------------- #
 
-        # Sidebar
-        sidebar = QVBoxLayout()
+    def _build_sidebar(self):
+        layout = QVBoxLayout()
 
         logo = QLabel("🧠 MemoryOS")
-        logo.setStyleSheet(
-            "font-size:24px;font-weight:bold;"
-        )
+        logo.setStyleSheet("font-size:24px; font-weight:bold;")
+        layout.addWidget(logo)
 
-        sidebar.addWidget(logo)
+        nav_buttons = [
+            ("🔍 Search",       self.show_search),
+            ("🤖 AI Assistant", self.show_ai),
+            ("📂 Folders",      self.show_folders),
+            ("⚙ Settings",     self.show_settings),
+        ]
+        for label, slot in nav_buttons:
+            btn = QPushButton(label)
+            btn.clicked.connect(slot)
+            layout.addWidget(btn)
 
-        self.search_page_btn = QPushButton("🔍 Search")
-        self.search_page_btn.clicked.connect(self.show_search)
+        layout.addStretch()
+        return layout
+
+    # -- Content area --------------------------------------------------- #
+
+    def _build_content(self):
+        layout = QVBoxLayout()
+
+        # Dashboard header (always visible)
+        layout.addWidget(self._build_dashboard())
+
+        # Stacked pages
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_search_page())   # index 0
+        self.pages.addWidget(self._build_ai_page())        # index 1
+        self.pages.addWidget(self._build_folders_page())   # index 2
+        self.pages.addWidget(self._build_settings_page())  # index 3
+        layout.addWidget(self.pages)
+
+        # Bottom action bar (always visible)
+        layout.addLayout(self._build_bottom_bar())
+
+        return layout
+
+    def _build_dashboard(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        title = QLabel("Search Your Digital Memory")
+        title.setStyleSheet("font-size:22px; font-weight:bold;")
+        layout.addWidget(title)
+
+        self.status_label = QLabel("Status: Ready")
+        layout.addWidget(self.status_label)
         
-        self.ai_page_btn = QPushButton("🤖 AI Assistant")
-        self.folder_page_btn = QPushButton("📂 Folders")
-        self.folder_page_btn.clicked.connect(self.show_folders)
-        
-        self.settings_page_btn = QPushButton("⚙ Settings")
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0)
+        self.progress_bar.hide()
+        layout.addWidget(self.progress_bar)
 
-        sidebar.addWidget(self.search_page_btn)
-        sidebar.addWidget(self.ai_page_btn)
-        sidebar.addWidget(self.folder_page_btn)
-        sidebar.addWidget(self.settings_page_btn)
+        self.search_stats_label = QLabel("")
+        layout.addWidget(self.search_stats_label)
 
-        sidebar.addStretch()
+        db = DatabaseManager()
+        stats_row = QHBoxLayout()
+        self.files_label  = QLabel(f"📄 Files: {db.count_files()}")
+        self.chunks_label = QLabel(f"🧩 Chunks: {db.count_chunks()}")
+        self.folders_label = QLabel(f"📂 Folders: {len(self.config.load_folders())}")
+        for lbl in (self.files_label, self.chunks_label, self.folders_label):
+            stats_row.addWidget(lbl)
+        layout.addLayout(stats_row)
 
-        # Main Content
-        content = QVBoxLayout()
+        return widget
 
-        title = QLabel(
-            "Search Your Digital Memory"
-        )
-        self.status_label = QLabel(
-            "Status: Ready"
-        )
-        
-        self.search_stats_label = QLabel(
-            ""
-        )
-        
-        self.db = DatabaseManager()
-        file_count = self.db.count_files()
-        chunk_count = self.db.count_chunks()
-        folder_count = len(self.config.load_folders())
-        
-        dashboard_layout = QHBoxLayout()
+    # -- Pages ---------------------------------------------------------- #
 
-        self.files_label = QLabel(
-            f"📄 Files: {file_count}"
-        )
+    def _build_search_page(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
 
-        self.chunks_label = QLabel(
-            f"🧩 Chunks: {chunk_count}"
-        )
-
-        self.folders_label = QLabel(
-            f"📂 Folders: {folder_count}"
-        )
-
-        dashboard_layout.addWidget(
-            self.files_label
-        )
-
-        dashboard_layout.addWidget(
-            self.chunks_label
-        )
-
-        dashboard_layout.addWidget(
-            self.folders_label
-        )
-
-        title.setStyleSheet(
-            "font-size:22px;font-weight:bold;"
-        )
-
-        content.addWidget(title)
-        content.addWidget(self.status_label)
-        content.addWidget(self.search_stats_label)
-        content.addLayout(dashboard_layout)
-
-        search_layout = QHBoxLayout()
-
+        # Search bar
+        bar = QHBoxLayout()
         self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("What are you looking for?")
+        self.search_box.returnPressed.connect(self.perform_search)
 
-        self.search_box.setPlaceholderText(
-            "What are you looking for?"
-        )
+        search_btn = QPushButton("Search")
+        search_btn.clicked.connect(self.perform_search)
 
-        self.search_button = QPushButton(
-            "Search"
-        )
-        self.search_button.clicked.connect(
-            self.perform_search
-        )
-        self.search_box.returnPressed.connect(
-            self.perform_search
-        )
+        bar.addWidget(self.search_box)
+        bar.addWidget(search_btn)
+        layout.addLayout(bar)
 
-        search_layout.addWidget(
-            self.search_box
-        )
+        # Results + preview
+        results_row = QHBoxLayout()
 
-        search_layout.addWidget(
-            self.search_button
-        )
-
-        content.addLayout(
-            search_layout
-        )
-        
-        self.folder_list = QListWidget()
-        self.folder_list.hide()
-
-        
-        # content.addWidget(
-        #     self.results_list
-        # )
-        # self.results_list = QHBoxWidget()
-        
-        results_layout = QHBoxLayout()
-        
-        
-        self.preview_panel = QTextEdit()
-        self.preview_panel.setStyleSheet("""
-            font-size: 14px;
-            padding: 10px;
-            """)
-        self.preview_panel.setReadOnly(True)
-        self.preview_panel.setPlainText(
-            "Select a file for preview"
-        )
-
-        # self.preview_panel.QTextEdit()
-        self.preview_panel.setReadOnly(True)
-        
-        self.preview_panel.setAlignment(
-            Qt.AlignmentFlag.AlignTop
-        )
-        
-        
         self.results_list = QListWidget()
         self.results_list.setSpacing(10)
-        
-        results_layout.addWidget(
-            self.results_list,
-            2
-        )
-        results_layout.addWidget(
-            self.preview_panel,
-            3
-        )
-        
-        content.addLayout(
-            results_layout
-        )
+        self.results_list.itemClicked.connect(self.show_preview)
+        self.results_list.itemDoubleClicked.connect(self.open_file)
 
-        content.addWidget(
-            self.folder_list
-        )
+        self.preview_panel = QTextEdit()
+        self.preview_panel.setStyleSheet("font-size:14px; padding:10px;")
+        self.preview_panel.setReadOnly(True)
+        self.preview_panel.setPlainText("Select a file to preview")
 
-        bottom_bar = QHBoxLayout()
+        results_row.addWidget(self.results_list, 2)
+        results_row.addWidget(self.preview_panel, 3)
+        layout.addLayout(results_row)
 
-        self.add_folder_btn = QPushButton(
-            "📂 Add Folder"
-        )
-        self.add_folder_btn.clicked.connect(
-            self.add_folder
-        )
+        return widget
+
+    def _build_ai_page(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        title = QLabel("🤖 AI Assistant")
+        title.setStyleSheet("font-size:20px; font-weight:bold;")
+        layout.addWidget(title)
+
+        layout.addWidget(QLabel("AI Assistant coming soon."))
+        layout.addStretch()
+        return widget
+
+    def _build_folders_page(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        title = QLabel("📂 Folders")
+        title.setStyleSheet("font-size:20px; font-weight:bold;")
+        layout.addWidget(title)
+
+        self.folder_list = QListWidget()
+        layout.addWidget(self.folder_list)
+
+        return widget
+
+    def _build_settings_page(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        title = QLabel("⚙ Settings")
+        title.setStyleSheet("font-size:20px; font-weight:bold;")
+        layout.addWidget(title)
+
+        # Theme Dropdown
+        layout.addWidget(QLabel("Theme"))
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Dark", "Light"])
+        self.theme_combo.currentTextChanged.connect(self.change_theme)
+        layout.addWidget(self.theme_combo)
+        layout.addSpacing(20)
         
-        self.remove_folder_btn = QPushButton(
-            "🗑️ Remove Folder"
-        )
-        self.remove_folder_btn.clicked.connect(
-            self.remove_folder
-        )
-
-        self.reindex_btn = QPushButton(
-            "🔄 Reindex"
-        )
-        self.reindex_btn.clicked.connect(
-            self.reindex_files
-        )
-
-        self.ai_btn = QPushButton(
-            "🤖 Ask AI"
-        )
-
-        bottom_bar.addWidget(
-            self.add_folder_btn
-        )
+        # Statistical Info
+        stats_title = QLabel("Database Information")
+        stats_title.setStyleSheet("font-size:20px; font-weight:bold")
+        layout.addWidget(stats_title)
+        self.settings_stats_label = QLabel()
+        layout.addWidget(self.settings_stats_label)
+        layout.addSpacing(20)
         
-        bottom_bar.addWidget(
-            self.remove_folder_btn
-        )
+        # Reset Data
+        clear_btn = QPushButton("🗑️ Clear Indexed Data")
+        clear_btn.clicked.connect(self.clear_indexed_data)
+        layout.addWidget(clear_btn)
+        layout.addSpacing(20)
 
-        bottom_bar.addWidget(
-            self.reindex_btn
-        )
+        layout.addStretch()
+        return widget
 
-        bottom_bar.addWidget(
-            self.ai_btn
-        )
+    def _build_bottom_bar(self):
+        bar = QHBoxLayout()
+        buttons = [
+            ("📂 Add Folder",    self.add_folder),
+            ("🗑️ Remove Folder", self.remove_folder),
+            ("🔄 Reindex",       self.reindex_files),
+            ("🤖 Ask AI",        self.show_ai),
+        ]
+        for label, slot in buttons:
+            btn = QPushButton(label)
+            btn.clicked.connect(slot)
+            if label == "🔄 Reindex":
+                self.reindex_btn = btn          # keep ref to toggle enabled state
+            bar.addWidget(btn)
+        return bar
 
-        content.addLayout(
-            bottom_bar
-        )
+    # ------------------------------------------------------------------ #
+    #  Navigation                                                          #
+    # ------------------------------------------------------------------ #
 
-        main_layout.addLayout(
-            sidebar,
-            1
-        )
+    def show_search(self):
+        self.reset_preview()
+        self.pages.setCurrentIndex(0)
 
-        main_layout.addLayout(
-            content,
-            4
-        )
+    def show_ai(self):
+        self.reset_preview()
+        self.pages.setCurrentIndex(1)
 
-        self.setLayout(
-            main_layout
-        )
+    def show_folders(self):
+        self.reset_preview()
+        self.pages.setCurrentIndex(2)
+        self._refresh_folder_list()
 
-        
-        
-        self.results_list.itemDoubleClicked.connect(
-            self.open_file
-        )
-        
-        self.results_list.itemClicked.connect(
-            self.show_preview
-        )
-        
-        
-        
-# ----------------------------------------------------------------------------------------------------------------------------------------
-        
-        
-        
+    def show_settings(self):
+        self.reset_preview()
+        self.refresh_settings_stats()
+        self.pages.setCurrentIndex(3)
+
+    # ------------------------------------------------------------------ #
+    #  Actions                                                             #
+    # ------------------------------------------------------------------ #
+
     def perform_search(self):
-        start_time = time.time()
-        
-        query = self.search_box.text()
+        query = self.search_box.text().strip()
         if not query:
             return
-        
-        self.results_list.clear()
-        results = self.search_engine.search(query)
 
-        search_time = round(time.time() - start_time, 2)
+        self.show_search()
+        self.results_list.clear()
+
+        start = time.time()
+        results = self.search_engine.search(query)
+        elapsed = round(time.time() - start, 2)
 
         if not results:
-            self.results_list.addItem(
-                "No results found."
-            )
-            self.search_stats_label.setText(
-                "No results found."
-            )
+            self.results_list.addItem("No results found.")
+            self.search_stats_label.setText("No results found.")
             return
-        
+
         self.search_stats_label.setText(
-            f"Found {len(results)} results in {search_time} seconds"
+            f"Found {len(results)} results in {elapsed}s"
         )
-        
+
         for filename, path, text, score in results:
-            preview = text[:100]
-            preview = preview.replace("\n", " ")
             folder = os.path.basename(os.path.dirname(path))
-            item = QListWidgetItem(f"📄 {filename}\n📁 {folder}...")
-            item.setSizeHint(QSize(100,70))
-            item.setData(Qt.ItemDataRole.UserRole, path)  # Store the file path for later use
-            item.setData(Qt.ItemDataRole.UserRole + 1, {"filename": filename, "text": text})  # Store the file path for later use
+            item = QListWidgetItem(f"📄 {filename}\n📁 {folder}")
+            item.setSizeHint(QSize(100, 70))
+            item.setData(Qt.ItemDataRole.UserRole,     path)
+            item.setData(Qt.ItemDataRole.UserRole + 1, {"filename": filename, "text": text})
             self.results_list.addItem(item)
 
     def open_file(self, item):
         path = item.data(Qt.ItemDataRole.UserRole)
         os.startfile(path)
-        
+
+    def show_preview(self, item):
+        data = item.data(Qt.ItemDataRole.UserRole + 1)
+        self.preview_panel.setPlainText(
+            f"{data['filename']}\n\n{'━' * 50}\n\n{data['text']}"
+        )
+
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Select Folder to Add"
-        )
-        if not folder:
-            return
-        self.config.save_folder(folder)
-        print(f"Added folder: {folder}")
-        
-    # def reindex_files(self):
-    #     self.status_label.setText("Status: Reindexing...")
-    #     QApplication.processEvents()  # Update UI
-    #     self.pipeline.reindex_all()
-        
-    #     self.status_label.setText("Status: Reloding Search Engine...")
-    #     QApplication.processEvents()  # Update UI
-    #     self.search_engine = SemanticSearch()
-        
-    #     self.refresh_dashboard()
-    #     self.status_label.setText("Status: Ready")
-    #     QApplication.processEvents()  # Update UI
-        
-    def reindex_files(self):
-        self.status_label.setText(
-            "Status: Reindexing..."
-        )
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Add")
+        if folder:
+            self.config.save_folder(folder)
+            self.refresh_dashboard()
 
-        self.reindex_btn.setEnabled(
-            False
-        )
-
-        self.worker = ReindexWorker()
-
-        self.worker.finished.connect(
-            self.reindex_finished
-        )
-        self.worker.start()
-         
-    def reindex_finished(self):
-        self.status_label.setText(
-            "Status: Reloading Search Engine..."
-        )
-
-        self.search_engine = SemanticSearch()
-
-        self.refresh_dashboard()
-
-        self.reindex_btn.setEnabled(
-            True
-        )
-
-        self.status_label.setText(
-            "Status: Ready"
-        )
-                
-                
-                
-                
-    def show_folders(self):
-        self.results_list.hide()
-        self.preview_panel.hide()
-        self.folder_list.show()
-        self.folder_list.clear()
-        folders = self.config.load_folders()
-        for folder in folders:
-            self.folder_list.addItem(folder)
-            
-    def show_search(self):
-        self.folder_list.hide()
-        self.results_list.show()
-        self.preview_panel.show()
-        
     def remove_folder(self):
         item = self.folder_list.currentItem()
         if not item:
             return
-        folder = item.text()
-        self.config.remove_folder(folder)
-        
-        self.show_folders()
-        
-    def refresh_dashboard(self):
+        self.config.remove_folder(item.text())
+        self._refresh_folder_list()
+        self.refresh_dashboard()
 
+    def reindex_files(self):
+        self.status_label.setText("Status: Reindexing…")
+        self.progress_bar.show()
+        self.progress_bar.setRange(0,0) 
+        self.reindex_btn.setEnabled(False)
+
+        self.worker = ReindexWorker()
+        self.worker.finished.connect(self._on_reindex_finished)
+        self.worker.start()
+
+    def _on_reindex_finished(self):
+        self.status_label.setText("Status: Reloading search engine…")
+        self.search_engine = SemanticSearch()
+        self.refresh_dashboard()
+        self.progress_bar.hide()
+        self.reindex_btn.setEnabled(True)
+        self.status_label.setText("Status: Ready")
+
+    def change_theme(self, theme):
+        from ui.styles import MAIN_STYLE, LIGHT_STYLE
+        self.setStyleSheet(MAIN_STYLE if theme == "Dark" else LIGHT_STYLE)
+        
+    def clear_indexed_data(self):
+        reply = QMessageBox.question(self, "Confirm Delete", "This will delete all indexed files and chunks.\nContinue?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         db = DatabaseManager()
-
-        self.files_label.setText(
-            f"📄 Files: {db.count_files()}"
-        )
-
-        self.chunks_label.setText(
-            f"🧩 Chunks: {db.count_chunks()}"
-        )
-
-        self.folders_label.setText(
-            f"📂 Folders: {len(self.config.load_folders())}"
-        )
-
+        db.cursor.execute("DELETE FROM embeddings")
+        db.cursor.execute("DELETE FROM chunks")
+        db.cursor.execute("DELETE FROM files")
+        db.conn.commit()
         db.close()
         
-    def show_preview(self, item):
+        self.results_list.clear()
+        self.preview_panel.setPlainText("Select a file to Preview")
+        self.refresh_dashboard()
+        self.status_label.setText("Staturs: Database Cleared")
+        pritn("All data cleaned")
 
-        data = item.data(
-            Qt.ItemDataRole.UserRole + 1
-        )
-        filename = data['filename']
-        text = data['text']
-        preview_text = (
-            f"{filename}\n{'='*50}\n{text}"
-        )
-        self.preview_panel.setPlainText(
-            preview_text
-        )
+    # ------------------------------------------------------------------ #
+    #  Helpers                                                             #
+    # ------------------------------------------------------------------ #
+
+    def _refresh_folder_list(self):
+        self.folder_list.clear()
+        for folder in self.config.load_folders():
+            self.folder_list.addItem(folder)
+
+    def refresh_dashboard(self):
+        db = DatabaseManager()
+        self.files_label.setText(f"📄 Files: {db.count_files()}")
+        self.chunks_label.setText(f"🧩 Chunks: {db.count_chunks()}")
+        self.folders_label.setText(f"📂 Folders: {len(self.config.load_folders())}")
+        db.close()
+        
+    def reset_preview(self):
+        self.preview_panel.setPlainText("Select a file to preview")
+        self.results_list.clear()
+        self.search_stats_label.setText("")
+        
+    def refresh_settings_stats(self):
+        db = DatabaseManager()
+        stats = f"""
+            📄 Files: {db.count_files()}
+            🧩 Chunks: {db.count_chunks()}
+            📂 {len(self.config.load_folders())}
+            """
+        self.settings_stats_label.setText(stats)
+        db.close
